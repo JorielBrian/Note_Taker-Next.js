@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Notebook } from '@/lib/types';
-import { btn, btnDanger, btnPrimary, input } from '@/lib/ui';
+import { btn, btnPrimary, input } from '@/lib/ui';
 
 interface Props {
   notebooks: Notebook[] | null;
@@ -17,6 +17,7 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
   const [creating, setCreating] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -30,11 +31,22 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
     }
   }
 
+  function toggleMenu(id: string, button: HTMLButtonElement) {
+    if (openMenuId === id) {
+      setOpenMenuId(null);
+      setMenuPosition(null);
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    setMenuPosition({ top: rect.top + rect.height / 2, left: rect.right + 8 });
+    setOpenMenuId(id);
+  }
+
   return (
     <section aria-label="Notebooks" className="flex min-h-0 flex-col border-line bg-panel lg:border-r">
       <div className="flex items-center justify-between gap-2 border-b border-line p-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Notebooks</h2>
-        <button type="button" className={btn} onClick={() => { setCreating(true); setRenamingId(null); setOpenMenuId(null); setName(''); }}>
+        <button type="button" className={btn} onClick={() => { setCreating(true); setRenamingId(null); setOpenMenuId(null); setMenuPosition(null); setName(''); }}>
           + New
         </button>
       </div>
@@ -68,7 +80,7 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
               const renaming = renamingId === nb.id;
               const menuOpen = openMenuId === nb.id;
               return (
-                <li key={nb.id} className="relative">
+                <li key={nb.id}>
                   {renaming ? (
                     <form
                       className="space-y-2 rounded-lg bg-selected p-2"
@@ -88,7 +100,7 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
                       <button
                         type="button"
                         aria-current={active ? 'true' : undefined}
-                        onClick={() => { setOpenMenuId(null); onSelect(nb.id); }}
+                        onClick={() => { setOpenMenuId(null); setMenuPosition(null); onSelect(nb.id); }}
                         className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left"
                       >
                         <span className="truncate">{nb.name}</span>
@@ -99,7 +111,7 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
                         aria-label={`More actions for ${nb.name}`}
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
-                        onClick={() => setOpenMenuId(menuOpen ? null : nb.id)}
+                        onClick={(e) => toggleMenu(nb.id, e.currentTarget)}
                         className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
                       >
                         <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
@@ -108,13 +120,18 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
                           <circle cx="12" cy="19" r="1.7" />
                         </svg>
                       </button>
-                      {menuOpen && (
-                        <div role="menu" aria-label={`Actions for ${nb.name}`} className="absolute right-1 top-full z-20 mt-1 min-w-36 rounded-lg border border-line bg-panel p-1 shadow-lg">
+                      {menuOpen && menuPosition && (
+                        <div
+                          role="menu"
+                          aria-label={`Actions for ${nb.name}`}
+                          style={{ position: 'fixed', top: menuPosition.top, left: menuPosition.left, transform: 'translateY(-50%)' }}
+                          className="z-50 min-w-36 rounded-lg border border-line bg-panel p-1 shadow-xl"
+                        >
                           <button
                             type="button"
                             role="menuitem"
                             className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-hover"
-                            onClick={() => { setName(nb.name); setRenamingId(nb.id); setOpenMenuId(null); setCreating(false); }}
+                            onClick={() => { setName(nb.name); setRenamingId(nb.id); setOpenMenuId(null); setMenuPosition(null); setCreating(false); }}
                           >
                             Rename
                           </button>
@@ -122,7 +139,7 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
                             type="button"
                             role="menuitem"
                             className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-danger hover:bg-hover"
-                            onClick={() => { setOpenMenuId(null); void onDelete(nb); }}
+                            onClick={() => { setOpenMenuId(null); setMenuPosition(null); void onDelete(nb); }}
                           >
                             Delete
                           </button>
