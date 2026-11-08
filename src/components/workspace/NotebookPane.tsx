@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Notebook } from '@/lib/types';
-import { btn, btnDanger, btnPrimary, input } from '@/lib/ui';
+import { btn, btnPrimary, input } from '@/lib/ui';
 
 interface Props {
   notebooks: Notebook[] | null;
@@ -13,12 +14,53 @@ interface Props {
   onDelete: (notebook: Notebook) => Promise<void>;
 }
 
+type MenuPosition = { top: number; left: number };
+
 export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRename, onDelete }: Props) {
   const [creating, setCreating] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  const activeMenuNotebook = notebooks?.find((notebook) => notebook.id === openMenuId) ?? null;
+
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      const trigger = triggerRefs.current.get(openMenuId!);
+      if (menuRef.current?.contains(target) || trigger?.contains(target)) return;
+      setOpenMenuId(null);
+      setMenuPosition(null);
+    }
+
+    function closeMenu() {
+      setOpenMenuId(null);
+      setMenuPosition(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') closeMenu();
+    }
+
+    // Close on scroll rather than letting a detached popover remain over unrelated content.
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [openMenuId]);
 
   async function run(action: () => Promise<void>, done: () => void) {
     setBusy(true);
@@ -30,11 +72,32 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
     }
   }
 
+  function toggleMenu(notebookId: string) {
+    if (openMenuId === notebookId) {
+      setOpenMenuId(null);
+      setMenuPosition(null);
+      return;
+    }
+
+    const trigger = triggerRefs.current.get(notebookId);
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = 144;
+    const menuHeight = 88;
+    const gap = 8;
+    const placeRight = rect.right + gap + menuWidth <= window.innerWidth;
+    const left = placeRight ? rect.right + gap : Math.max(8, rect.left - menuWidth - gap);
+    const top = Math.min(Math.max(8, rect.top - 4), window.innerHeight - menuHeight - 8);
+
+    setMenuPosition({ top, left });
+    setOpenMenuId(notebookId);
+  }
+
   return (
     <section aria-label="Notebooks" className="flex min-h-0 flex-col border-line bg-panel lg:border-r">
       <div className="flex items-center justify-between gap-2 border-b border-line p-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Notebooks</h2>
-        <button type="button" className={btn} onClick={() => { setCreating(true); setRenamingId(null); setOpenMenuId(null); setName(''); }}>
+        <button type="button" className={btn} onClick={() => { setCreating(true); setRenamingId(null); setOpenMenuId(null); setMenuPosition(null); setName(''); }}>
           + New
         </button>
       </div>
@@ -68,7 +131,7 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
               const renaming = renamingId === nb.id;
               const menuOpen = openMenuId === nb.id;
               return (
-                <li key={nb.id} className="relative">
+                <li key={nb.id}>
                   {renaming ? (
                     <form
                       className="space-y-2 rounded-lg bg-selected p-2"
@@ -88,18 +151,22 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
                       <button
                         type="button"
                         aria-current={active ? 'true' : undefined}
-                        onClick={() => { setOpenMenuId(null); onSelect(nb.id); }}
+                        onClick={() => { setOpenMenuId(null); setMenuPosition(null); onSelect(nb.id); }}
                         className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left"
                       >
                         <span className="truncate">{nb.name}</span>
                         <span className="shrink-0 text-xs text-muted">{nb.noteCount}</span>
                       </button>
                       <button
+                        ref={(node) => {
+                          if (node) triggerRefs.current.set(nb.id, node);
+                          else triggerRefs.current.delete(nb.id);
+                        }}
                         type="button"
                         aria-label={`More actions for ${nb.name}`}
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
-                        onClick={() => setOpenMenuId(menuOpen ? null : nb.id)}
+                        onClick={() => toggleMenu(nb.id)}
                         className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
                       >
                         <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
@@ -108,26 +175,6 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
                           <circle cx="12" cy="19" r="1.7" />
                         </svg>
                       </button>
-                      {menuOpen && (
-                        <div role="menu" aria-label={`Actions for ${nb.name}`} className="absolute right-1 top-full z-20 mt-1 min-w-36 rounded-lg border border-line bg-panel p-1 shadow-lg">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-hover"
-                            onClick={() => { setName(nb.name); setRenamingId(nb.id); setOpenMenuId(null); setCreating(false); }}
-                          >
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-danger hover:bg-hover"
-                            onClick={() => { setOpenMenuId(null); void onDelete(nb); }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
                 </li>
@@ -136,6 +183,45 @@ export function NotebookPane({ notebooks, selectedId, onSelect, onCreate, onRena
           </ul>
         )}
       </div>
+
+      {activeMenuNotebook && menuPosition && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={`Actions for ${activeMenuNotebook.name}`}
+          style={{ position: 'fixed', top: menuPosition.top, left: menuPosition.left, width: 144, zIndex: 1000 }}
+          className="rounded-lg border border-line bg-panel p-1 shadow-xl"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm hover:bg-hover"
+            onClick={() => {
+              setName(activeMenuNotebook.name);
+              setRenamingId(activeMenuNotebook.id);
+              setOpenMenuId(null);
+              setMenuPosition(null);
+              setCreating(false);
+            }}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-danger hover:bg-hover"
+            onClick={() => {
+              const notebook = activeMenuNotebook;
+              setOpenMenuId(null);
+              setMenuPosition(null);
+              void onDelete(notebook);
+            }}
+          >
+            Delete
+          </button>
+        </div>,
+        document.body,
+      )}
     </section>
   );
 }
