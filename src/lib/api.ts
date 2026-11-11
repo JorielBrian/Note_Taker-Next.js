@@ -1,7 +1,8 @@
 import type { Note, NoteSummary, Notebook, User } from './types';
+import { publishSessionEvent } from './session-sync';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
 }
@@ -12,20 +13,22 @@ async function request<T>(path: string, init: RequestInit & { json?: unknown } =
   const { json, ...rest } = init;
   const res = await fetch(`/api${path}`, {
     ...rest,
-    headers: json !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: json !== undefined ? { 'Content-Type': 'application/json' } : rest.headers,
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
 
-  if (res.status === 401 && !AUTH_PATHS.includes(path)) {
-    // Session expired or invalid: clear the cookie and go back to the login page.
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
-    window.location.assign('/');
-    throw new ApiError(401, 'Your session has expired');
-  }
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
+    const body = (await res.json().catch(() => null)) as
+      | { code?: string; message?: string | string[] }
+      | null;
+    if (res.status === 401 && !AUTH_PATHS.includes(path)) {
+      const expired = body?.code === 'SESSION_EXPIRED';
+      publishSessionEvent('logout');
+      window.location.assign(expired ? '/?reason=session-expired' : '/');
+      throw new ApiError(401, expired ? 'You were logged out due to inactivity.' : 'Your session is no longer valid.', body?.code);
+    }
     const message = Array.isArray(body?.message) ? body.message.join('. ') : body?.message;
-    throw new ApiError(res.status, message ?? 'Something went wrong. Please try again.');
+    throw new ApiError(res.status, message ?? 'Something went wrong. Please try again.', body?.code);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
@@ -33,7 +36,11 @@ async function request<T>(path: string, init: RequestInit & { json?: unknown } =
 export const api = {
   register: (username: string, password: string) => request<User>('/auth/register', { method: 'POST', json: { username, password } }),
   login: (username: string, password: string) => request<User>('/auth/login', { method: 'POST', json: { username, password } }),
-  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  logout: async () => {
+    await request<void>('/auth/logout', { method: 'POST' });
+    publishSessionEvent('logout');
+  },
+  keepAlive: () => request<{ ok: boolean }>('/auth/keep-alive', { method: 'POST' }),
 
   listNotebooks: () => request<Notebook[]>('/notebooks'),
   createNotebook: (name: string) => request<Notebook>('/notebooks', { method: 'POST', json: { name } }),

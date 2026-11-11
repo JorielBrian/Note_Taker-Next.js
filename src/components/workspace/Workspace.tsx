@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { publishSessionEvent } from '@/lib/session-sync';
+import { SessionActivity } from '@/components/auth/SessionActivity';
 import type { Note, NoteSummary, Notebook, User } from '@/lib/types';
 import { btn } from '@/lib/ui';
 import { NoteEditor } from './NoteEditor';
@@ -112,7 +114,11 @@ export function Workspace({ user }: { user: User }) {
   }, [notebookId]);
 
   async function signOut() {
-    await api.logout().catch(() => undefined);
+    try {
+      await api.logout();
+    } catch {
+      publishSessionEvent('logout');
+    }
     router.replace('/');
     router.refresh();
   }
@@ -122,6 +128,7 @@ export function Workspace({ user }: { user: User }) {
 
   return (
     <div className="flex h-dvh flex-col">
+      <SessionActivity />
       <header className="flex items-center gap-3 border-b border-line bg-panel px-3 py-2">
         <h1 className="text-base font-bold tracking-tight">Note Taker</h1>
         <span className="flex-1" />
