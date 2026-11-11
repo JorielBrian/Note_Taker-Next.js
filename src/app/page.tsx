@@ -1,12 +1,24 @@
 import { redirect } from 'next/navigation';
 import { AuthForm } from '@/components/auth/AuthForm';
-import { getSessionUser } from '@/lib/session';
+import { checkSession } from '@/lib/session';
 
-export default async function HomePage() {
-  if (await getSessionUser()) redirect('/notebooks');
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>;
+}) {
+  const [session, query] = await Promise.all([checkSession(), searchParams]);
+  if (session.user) redirect('/notebooks');
+
+  const sessionMessage = session.expired || query.reason === 'session-expired'
+    ? 'expired'
+    : query.reason === 'session-ended'
+      ? 'ended'
+      : undefined;
+
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
-      <AuthForm />
+      <AuthForm sessionMessage={sessionMessage} />
     </main>
   );
 }
