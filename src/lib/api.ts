@@ -24,7 +24,7 @@ async function request<T>(path: string, init: RequestInit & { json?: unknown } =
     if (res.status === 401 && !AUTH_PATHS.includes(path)) {
       const expired = body?.code === 'SESSION_EXPIRED';
       publishSessionEvent('logout');
-      window.location.assign(expired ? '/?reason=session-expired' : '/?reason=session-ended');
+      window.location.assign(expired ? '/?reason=session-expired' : '/');
       throw new ApiError(401, expired ? 'You were logged out due to inactivity.' : 'Your session is no longer valid.', body?.code);
     }
     const message = Array.isArray(body?.message) ? body.message.join('. ') : body?.message;

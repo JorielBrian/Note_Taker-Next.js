@@ -13,8 +13,9 @@ export function publishSessionEvent(type: SessionEventType) {
     const channel = new BroadcastChannel(CHANNEL_NAME);
     channel.postMessage(event);
     channel.close();
+    return;
   } catch {
-    // Storage events below are the fallback for browsers without BroadcastChannel.
+    // BroadcastChannel unavailable: fall back to a storage event.
   }
 
   try {
