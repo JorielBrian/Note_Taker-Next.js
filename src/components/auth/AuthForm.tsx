@@ -1,13 +1,14 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { api } from '@/lib/api';
 import { btnPrimary, input } from '@/lib/ui';
 
 type Mode = 'login' | 'register';
+type SessionMessage = 'expired' | 'ended';
 
-export function AuthForm() {
+export function AuthForm({ sessionMessage }: { sessionMessage?: SessionMessage }) {
   const router = useRouter();
   const id = useId();
   const [mode, setMode] = useState<Mode>('login');
@@ -17,6 +18,17 @@ export function AuthForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const isRegister = mode === 'register';
+
+  useEffect(() => {
+    if (sessionMessage === 'expired') {
+      setError('You were logged out due to inactivity.');
+      // The server-side session check cannot forward Set-Cookie to the browser.
+      // Logout is public and clears the stale httpOnly cookie on the browser response.
+      void api.logout().catch(() => undefined);
+    } else if (sessionMessage === 'ended') {
+      setError('You were signed out in another tab.');
+    }
+  }, [sessionMessage]);
 
   function switchMode(next: Mode) {
     setMode(next);
