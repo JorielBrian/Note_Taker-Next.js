@@ -123,17 +123,17 @@ export function NoteEditor({ noteId, notebooks, onSaved, onMoved, onDeleted, onB
   );
 
   if (loadError) {
-    return <section aria-label="Editor" className="flex min-h-0 flex-col bg-panel">{header}<p role="alert" className="p-4 text-sm text-danger">{loadError}</p></section>;
+    return <section aria-label="Editor" className="flex min-h-0 flex-1 flex-col bg-panel">{header}<p role="alert" className="p-4 text-sm text-danger">{loadError}</p></section>;
   }
   if (!note) {
-    return <section aria-label="Editor" className="flex min-h-0 flex-col bg-panel" aria-busy="true">{header}<div className="m-4 h-10 animate-pulse rounded-lg bg-hover" /></section>;
+    return <section aria-label="Editor" className="flex min-h-0 flex-1 flex-col bg-panel" aria-busy="true">{header}<div className="m-4 h-10 animate-pulse rounded-lg bg-hover" /></section>;
   }
 
   const tabClass = (t: typeof tab) =>
     `rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${tab === t ? 'bg-selected text-ink' : 'text-muted hover:text-ink'}`;
 
   return (
-    <section aria-label="Editor" className="flex min-h-0 flex-col bg-panel">
+    <section aria-label="Editor" className="flex min-h-0 flex-1 flex-col bg-panel">
       {header}
       <div className="space-y-3 p-3 pb-0">
         <label htmlFor="note-title" className="sr-only">Title</label>
