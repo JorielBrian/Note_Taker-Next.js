@@ -18,6 +18,7 @@ interface Props {
 type Status = 'saved' | 'unsaved' | 'saving' | 'error';
 const AUTOSAVE_MS = 800;
 const STATUS_TEXT: Record<Status, string> = { saved: 'Saved', unsaved: 'Unsaved changes', saving: 'Saving…', error: 'Couldn’t save' };
+const TASK_MARKER = /^(\s*(?:>\s*)*(?:[-+*]|\d+[.)])\s+\[)([ xX])(\])/;
 
 /** Render with key={noteId} so each note gets fresh state. */
 export function NoteEditor({ noteId, notebooks, onSaved, onMoved, onDeleted, onBack }: Props) {
@@ -28,11 +29,14 @@ export function NoteEditor({ noteId, notebooks, onSaved, onMoved, onDeleted, onB
   const [tab, setTab] = useState<'write' | 'preview'>('write');
   const [status, setStatus] = useState<Status>('saved');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [taskSaveWarning, setTaskSaveWarning] = useState<string | null>(null);
+  const [taskToggleBusy, setTaskToggleBusy] = useState(false);
 
   const latest = useRef({ title: '', content: '' });
   const dirty = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const chain = useRef<Promise<void>>(Promise.resolve());
+  const lastSaveSucceeded = useRef(true);
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
 
@@ -51,22 +55,24 @@ export function NoteEditor({ noteId, notebooks, onSaved, onMoved, onDeleted, onB
   }, [noteId]);
 
   // Saves are serialised so an older request can never overwrite a newer one.
-  const flush = useCallback((): Promise<void> => {
+  const flush = useCallback((): Promise<boolean> => {
     clearTimeout(timer.current);
-    if (!dirty.current) return chain.current;
+    if (!dirty.current) return chain.current.then(() => lastSaveSucceeded.current);
     dirty.current = false;
     const snapshot = { ...latest.current };
     setStatus('saving');
     chain.current = chain.current.then(async () => {
       try {
         onSavedRef.current(await api.updateNote(noteId, snapshot));
+        lastSaveSucceeded.current = true;
         if (!dirty.current) setStatus('saved');
       } catch {
         dirty.current = true;
+        lastSaveSucceeded.current = false;
         setStatus('error');
       }
     });
-    return chain.current;
+    return chain.current.then(() => lastSaveSucceeded.current);
   }, [noteId]);
 
   useEffect(() => () => { void flush(); }, [flush]); // save pending edits when switching notes
@@ -85,6 +91,43 @@ export function NoteEditor({ noteId, notebooks, onSaved, onMoved, onDeleted, onB
     setStatus('unsaved');
     clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), AUTOSAVE_MS);
+  }
+
+  async function toggleTask(index: number, checked: boolean) {
+    if (taskToggleBusy) return;
+
+    const previousContent = latest.current.content;
+    let taskIndex = 0;
+    let found = false;
+    const nextContent = previousContent.split('\n').map((line) => {
+      const match = line.match(TASK_MARKER);
+      if (!match) return line;
+      if (taskIndex++ !== index) return line;
+      found = true;
+      return `${match[1]}${checked ? 'x' : ' '}${match[3]}${line.slice(match[0].length)}`;
+    }).join('\n');
+
+    if (!found || nextContent === previousContent) return;
+
+    setTaskToggleBusy(true);
+    setTaskSaveWarning(null);
+    edit({ content: nextContent });
+
+    const saved = await flush();
+    if (!saved) {
+      // Revert only if this is still the exact optimistic content we attempted to save.
+      if (latest.current.content === nextContent) {
+        latest.current = { ...latest.current, content: previousContent };
+        setContent(previousContent);
+        dirty.current = false;
+        clearTimeout(timer.current);
+        setStatus('saved');
+      }
+      setTaskSaveWarning('Could not save this checkbox change. The checkbox was reverted. Please check your connection and try again.');
+    } else {
+      setTaskSaveWarning(null);
+    }
+    setTaskToggleBusy(false);
   }
 
   async function move(notebookId: string) {
@@ -164,7 +207,10 @@ export function NoteEditor({ noteId, notebooks, onSaved, onMoved, onDeleted, onB
               className="h-full min-h-64 w-full resize-none rounded-lg border border-line bg-panel p-3 font-mono text-base leading-relaxed text-ink placeholder:text-muted sm:text-sm" />
           </>
         ) : (
-          <div className="h-full overflow-y-auto rounded-lg border border-line p-4"><MarkdownPreview source={content} /></div>
+          <div className="h-full overflow-y-auto rounded-lg border border-line p-4">
+            <MarkdownPreview source={content} onTaskToggle={toggleTask} taskToggleDisabled={taskToggleBusy} />
+            {taskSaveWarning && <p role="alert" className="mt-3 text-sm text-danger">{taskSaveWarning}</p>}
+          </div>
         )}
       </div>
     </section>
